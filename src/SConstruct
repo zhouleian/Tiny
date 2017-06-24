@@ -1,0 +1,4 @@
+Program('tiny',['Tiny.c','Epoll.c','Http_request.c','ServerSocket.c','Worker.c',
+'Http.c','Queue.c','Timer.c','Http_parse.c'],
+LIBS = ['pthread'],
+CCFLAGS=['-DNDEBUG'])
