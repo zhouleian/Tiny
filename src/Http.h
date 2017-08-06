@@ -9,7 +9,7 @@
 #include "Http_request.h"
    
 #define MAXLINE     8192
-#define SHORTLINE   512
+#define SHORTLINE   8192
 
 //在.c文件中使用strcasecmp实现了，但是后面有多个循环，又重新用的switch
 #define str3_cmp(m, c0, c1, c2, c3)                                       \

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/mman.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -20,6 +21,7 @@ static int parse_uri(char* uri,int uri_length,char* filename,char* cgiargs);
 static void do_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 //static void serve_dynamic(int fd, char *filename, char *cgiargs);
 static void serve_static(int fd, char *filename, size_t filesize,http_out_t* out);
+static void serve_dynamic(int fd, char *filename, char* cgiargs);
 static char* ROOT = NULL;
 //文件类型
 mime_type_t tiny_mime[] = {
@@ -52,16 +54,16 @@ void do_request(void* ptr){
 	char filename[SHORTLINE];//shortline
 	struct stat sbuf;
 	ROOT = r->root;
-	
-	char *plast = NULL;
+
 	size_t remain_size;
 
 	del_timer(r);
 	for(;;) {
-		plast = &r->buf[r->last % MAX_BUF];
-		remain_size = MIN(MAX_BUF - (r->last - r->pos) - 1, MAX_BUF - r->last % MAX_BUF);
+		remain_size = MAX_BUF -r->last;
+	//	plast = &r->buf[r->last % MAX_BUF];
+	//	remain_size = MIN(MAX_BUF - (r->last - r->pos) - 1, MAX_BUF - r->last % MAX_BUF);
 
-		n = read(fd, plast, remain_size);
+		n = read(fd, r->buf, remain_size);
 		check(r->last - r->pos < MAX_BUF, "request buffer overflow!");
 
 		if (n == 0) {   
@@ -112,7 +114,7 @@ void do_request(void* ptr){
 
 		rc = init_out_t(out, fd);
 		check(rc == OK, "init_out_t");
-		char* cgiargs;
+		char cgiargs[SHORTLINE];
 
 		//解析uri,获取filename，uri
 		int is_static = parse_uri(r->uri_start, r->uri_end - r->uri_start, filename, cgiargs);
@@ -128,8 +130,8 @@ void do_request(void* ptr){
 				continue;
 			}
 
-			out->mtime = sbuf.st_mtime;
-
+			out->mtime = sbuf.st_mtime;//文件内容最后被修改的时间
+			//得到header之后，处理静态内容的时候
 			http_handle_header(r, out);
 			check(list_empty(&(r->list)) == 1, "header list should be empty");
 
@@ -147,11 +149,13 @@ void do_request(void* ptr){
 			free(out);
 		}
 		else{//处理动态内容
+			//printf("\n处理动态内容\n");
 			if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) { 
 				do_error(fd, filename, "403", "Forbidden","Tiny couldn't run the CGI program");
 				return;
 			}
-			//TODO:serve_dynamic(fd, filename, cgiargs);
+			//TODO
+			serve_dynamic(fd, filename, cgiargs);
 		}
 
 	}
@@ -169,7 +173,7 @@ close:
 	rc = http_close_conn(r);
 	check(rc == 0, "do_request: http_close_conn");
 }
-//解析是静态内容还是动态内容,后来添加了对uri的长度的限制和判断
+//解析是静态内容还是动态内容,后来添加了对uri的长度的限制和判断,传进来的cgiargs是空的
 static int parse_uri(char* uri,int uri_length,char* filename,char* cgiargs){
 	check(uri !=NULL,"parse_uri:uri is NULL");
 	if(uri_length > (SHORTLINE >> 1)){
@@ -192,7 +196,7 @@ static int parse_uri(char* uri,int uri_length,char* filename,char* cgiargs){
 		return 1;//是静态内容
 	}
 	else{//动态内容，提取参数
-		ptr = strchr(uri,'?');
+		ptr = index(uri,'?');
 		if(ptr){
 			strcpy(cgiargs,ptr+1);//动态内容的参数
 			*ptr = '\0';
@@ -200,8 +204,9 @@ static int parse_uri(char* uri,int uri_length,char* filename,char* cgiargs){
 			debug("file_length = (ptr - uri) = %d", file_length);
 		}else
 			strcpy(cgiargs,"");
-		strcpy(filename,"ROOT");
+		strcpy(filename,ROOT);
 		strcat(filename,uri);
+		//printf("filename=%s\n",filename);
 		return 0;//动态内容
 	}
 }
@@ -249,7 +254,7 @@ static void serve_static(int fd, char *filename, size_t filesize,http_out_t* out
 		strftime(buf, SHORTLINE,  "%a, %d %b %Y %H:%M:%S GMT", &tm);
 		sprintf(header, "%sLast-Modified: %s\r\n", header, buf);
 	}
-	
+
 	sprintf(header, "%sServer: Tiny \r\n", header);
 	sprintf(header, "%s\r\n", header);
 
@@ -277,24 +282,40 @@ static void get_filetype(const char* filename,char* filetype){
 			strcpy(filetype,tiny_mime[i].value);
 	}
 }
-/*
+
 //处理动态内容
 static void serve_dynamic(int fd, char *filename, char *cgiargs) {
-	char buf[MAXLINE], *emptylist[] = { NULL };
+	char header[MAXLINE], *emptylist[] = { NULL };
+	char *environ[] = {NULL};
 
-	sprintf(buf, "HTTP/1.1 200 OK\r\n"); 
-	Worker_writen(fd, buf, strlen(buf));
-	sprintf(buf, "Server: Tiny Web Server\r\n");
-	Worker_writen(fd, buf, strlen(buf));
+	sprintf(header, "HTTP/1.1 200 OK\r\n"); 
+	sprintf(header, "%sServer: Tiny Web Server\r\n", header);
+	sprintf(header, "%sServer: Tiny \r\n", header);
+	sprintf(header, "%s\r\n", header);
+	size_t n = (size_t)worker_writen(fd, header, strlen(header)); 
+	check(n==strlen(header),"worker_writen error,errno = %d",errno);
 
 	if (Fork() == 0) { //child 
-		setenv("QUERY_STRING", cgiargs, 1); //初始化环境变量QUERY_STRING
+		//FIXME
+		setenv("QUERY_STRING",cgiargs,1); //初始化环境变量QUERY_STRING
 		Dup2(fd, STDOUT_FILENO); //重定向标准输出到已连接文件描述符
+		//解析cgiargs
+		int ret = -1;
+		for(int i = 0;i < strlen(cgiargs);i++)
+			if(cgiargs[i] == '&')
+				ret = i;
+		check(ret!=0,"cgiargs error");
+		char p1[ret+1];
+		for(int j = 0;j <ret;j++)
+			p1[j] = cgiargs[j];
+		p1[ret] = '\0';
+		char *p2 = strchr(cgiargs,'&') + 1;
+		emptylist[0] = p1;
+		emptylist[1] = p2;
 		Execve(filename, emptylist, environ); //执行cgi项目
 	}
 	Wait(NULL);//父进程等待子进程结束
 }
-*/
 
 
 
