@@ -32,7 +32,7 @@ struct tiny_pool_large_s {
 	tiny_pool_large_t* next;
     void* alloc;
 };
-
+/*
 typedef void (*tiny_pool_cleanup_pt)(void *data);
 typedef struct tiny_pool_cleanup_s tiny_pool_cleanup_t;  
 struct tiny_pool_cleanup_s {
@@ -40,14 +40,12 @@ struct tiny_pool_cleanup_s {
     void* data;
     tiny_pool_cleanup_t* next;
 };
+*/
 struct tiny_pool_s{
 	tiny_pool_data_t d;
 	size_t max;
 	tiny_pool_t *current;
-	//tiny_chain_t *chain;
-	tiny_pool_large_t *large;
-	tiny_pool_cleanup_t * cleanup;
-	//tiny_log_t *log;
+	tiny_pool_large_t     *large;
 };
 
 

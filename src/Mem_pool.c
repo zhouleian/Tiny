@@ -23,14 +23,13 @@ tiny_pool_t* tiny_create_pool(size_t size){
 	p->current = p;
 	//p->chain = NULL;
 	//只有在需要的时候才分配大的内存区域
-	p->large = NULL;
-	p->cleanup = NULL;
+	//p->large = NULL;
+	//p->cleanup = NULL;
 
 	return p;
 }
 //一块新的内存块，为poll内存池开辟一个新的内存块，申请size大小的内存
 static void* tiny_palloc_block(tiny_pool_t* pool, size_t size){
-	printf("tiny_palloc_block-------------\n");
 	u_char      *m;
 	size_t       psize;
 	tiny_pool_t  *p, *pnew, *current;
@@ -71,9 +70,7 @@ static void* tiny_palloc_block(tiny_pool_t* pool, size_t size){
 
 	return m;
 }
-
 static void *tiny_palloc_large(tiny_pool_t *pool, size_t size){
-	printf("tiny_palloc_large-------------\n");
 	void              *p;
 	tiny_uint_t         n;
 	tiny_pool_large_t  *large;
@@ -95,7 +92,8 @@ static void *tiny_palloc_large(tiny_pool_t *pool, size_t size){
 			break;
 		}
 	}
-	//为了提高效率， 如果在三次内没有找到空的large结构体，则创建一个
+	//为了提高效率， 如果在三次内没有找到空的large结构体，则创建一个,
+	//是从当前的current中创建一个large结构体，所以消耗current内存池的一些内存
 	large = tiny_palloc(pool, sizeof(tiny_pool_large_t));
 	if (large == NULL) {
 		tiny_free(p);
@@ -108,7 +106,6 @@ static void *tiny_palloc_large(tiny_pool_t *pool, size_t size){
 
 	return p;
 }
-
 
 
 void* tiny_palloc(tiny_pool_t* pool, size_t size){
@@ -126,7 +123,6 @@ void* tiny_palloc(tiny_pool_t* pool, size_t size){
 				p->d.last = m + size;//用掉了当然要改变*last了
 				return m;
 			}
-
 			p = p->d.next;
 		} while (p);
 		return tiny_palloc_block(pool, size);
@@ -141,16 +137,8 @@ void tiny_destroy_pool(tiny_pool_t* pool)
 {
 	tiny_pool_t          *p, *n;
 	tiny_pool_large_t    *l;
-	tiny_pool_cleanup_t  *c;
-
-	//调用清理函数
-	for (c = pool->cleanup; c; c = c->next) {
-		printf("cleanup -----------------\n");
-		if (c->handler) {		
-			c->handler(c->data);
-		}
-	}
-
+	//tiny_pool_cleanup_t  *c;
+	
 	//释放大块的内存
 	printf("des large -----------------\n");
 	for (l = pool->large; l; l = l->next) {
